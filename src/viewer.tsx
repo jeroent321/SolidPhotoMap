@@ -1,7 +1,7 @@
 // One photo over the whole app: the full image (decoded in the thumbs
 // isolate, the grid thumbnail standing in while it loads), its date and
 // file name, and previous / next through the list it was opened from.
-import { createEffect, createSignal, env, pct, Show, untrack } from "@solidrt/core"
+import { createDoubleTap, createEffect, createSignal, createTransform, env, getBoundingBox, onLayout, pct, Show, untrack } from "@solidrt/core"
 import { createTexture, destroyTexture, type TextureId } from "@solidrt/core/gpu"
 import type { Isolated } from "flux:isolate"
 import type * as Thumbs from "./thumbs"
@@ -49,9 +49,9 @@ export function Viewer(props: {
       let alive = true
       let tex: TextureId | null = null
       setFailed(false)
-      // Enough pixels for the whole window on this display, capped at what
-      // every GPU takes as one texture.
-      let max = untrack(() => Math.min(4096, Math.ceil(Math.max(env.windowSize.width, env.windowSize.height) * env.displayScale)))
+      // Twice the pixels the window shows, so zooming in stays sharp for a
+      // while, capped at what every GPU takes as one texture.
+      let max = untrack(() => Math.min(4096, Math.ceil(2 * Math.max(env.windowSize.width, env.windowSize.height) * env.displayScale)))
       loader.full(path, max).then(
         (img) => {
           if (!alive) return
@@ -70,12 +70,73 @@ export function Viewer(props: {
   )
   let name = () => props.photo.path.split("/").pop()
 
+  // Zooming inside the photo: pinch, wheel or double-click. The image view
+  // is scaled about its centre and moved by (x, y); a zoom keeps the point
+  // under the fingers or the pointer in place, and the image cannot be
+  // dragged off its box. A new photo starts unzoomed.
+  const MAX_ZOOM = 8
+  type Zoom = { s: number; x: number; y: number }
+  let [zoom, setZoom] = createSignal<Zoom>({ s: 1, x: 0, y: 0 }, { ownedWrite: true })
+  createEffect(
+    () => props.photo.id,
+    () => {
+      setZoom({ s: 1, x: 0, y: 0 })
+    },
+  )
+  let box: { id: number } | undefined
+  let size = { w: 0, h: 0 }
+  onLayout(() => {
+    let b = box && getBoundingBox(box)
+    if (b) size = { w: b.width, h: b.height }
+  })
+  let clamp = (z: Zoom): Zoom => {
+    let s = Math.max(1, Math.min(MAX_ZOOM, z.s))
+    let mx = ((s - 1) * size.w) / 2
+    let my = ((s - 1) * size.h) / 2
+    return { s, x: Math.max(-mx, Math.min(mx, z.x)), y: Math.max(-my, Math.min(my, z.y)) }
+  }
+  // (fx, fy) in the box's own pixels.
+  let zoomAt = (z: Zoom, k: number, fx: number, fy: number): Zoom => {
+    let s = Math.max(1, Math.min(MAX_ZOOM, z.s * k))
+    let r = s / z.s
+    let cx = fx - size.w / 2
+    let cy = fy - size.h / 2
+    return clamp({ s, x: cx - (cx - z.x) * r, y: cy - (cy - z.y) * r })
+  }
+  let pinch = createTransform({
+    onTransformMove: (t) => {
+      let z = zoom()
+      z = { ...z, x: z.x + t.dx, y: z.y + t.dy }
+      if (t.scale !== 1) z = zoomAt(z, t.scale, t.x, t.y)
+      setZoom(clamp(z))
+    },
+  })
+  let doubleTap = createDoubleTap({
+    onDoubleTap: (at) => setZoom((z) => (z.s > 1 ? { s: 1, x: 0, y: 0 } : zoomAt(z, 2.5, at.localX, at.localY))),
+  })
+
   return (
-    <view position="absolute" left={0} right={0} top={0} bottom={0} onPointerDown={() => {}}>
-      <d-rect color="#000000f2" />
-      <Show when={full() ?? thumb()}>
-        {(t) => <texture src={t()} fit="contain" position="absolute" left={12} right={12} top={12} bottom={12} />}
-      </Show>
+    <view position="absolute" left={0} right={0} top={0} bottom={0} overflow="hidden">
+      <d-rect color="#0b0d11" />
+      <view
+        ref={(n: { id: number }) => (box = n)}
+        position="absolute"
+        left={0}
+        right={0}
+        top={0}
+        bottom={0}
+        overflow="hidden"
+        onWheel={(e) => setZoom((z) => zoomAt(z, 2 ** (-e.deltaY / 240), e.localX, e.localY))}
+        {...pinch.handlers}
+      >
+        <view position="absolute" left={0} right={0} top={0} bottom={0} {...doubleTap.handlers}>
+          <view position="absolute" left={8} right={8} top={8} bottom={8} x={zoom().x} y={zoom().y} scale={zoom().s}>
+            <Show when={full() ?? thumb()}>
+              {(t) => <texture src={t()} fit="contain" position="absolute" left={0} right={0} top={0} bottom={0} />}
+            </Show>
+          </view>
+        </view>
+      </view>
       <Show when={failed() && !thumb()}>
         <view position="absolute" left={0} right={0} top={0} bottom={0} alignItems="center" justifyContent="center">
           <text fontSize={15} color={MUTED}>This photo's format can't be shown here yet.</text>

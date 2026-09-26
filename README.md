@@ -7,7 +7,7 @@ A heatmap of where your photos were taken, built with [SolidRT](https://github.c
 - The index lives in a local SQLite database (`photos.db`) in the app's own private storage folder. Photos and their locations never leave the device.
 - The map background is [OpenStreetMap](https://www.openstreetmap.org/copyright)'s own tile server, run by the non-profit OpenStreetMap Foundation: no account, no API key, no ads or tracking. Tiles are cached on the device after the first download, so the server only sees an area the first time you look at it. Switch the background **Off** in the Folders tab for no network use at all (the heatmap is then drawn on a plain grid).
 - Drag to pan; pinch, scroll or double-click (double-tap) to zoom, or use the +/− buttons.
-- Beside the map (below it on a tall screen) a grid shows the photos taken in the area on screen, newest first. From zoom level 13 the photos also appear as points on the map. Tap a point or a grid photo to see it full size; ‹ › or the arrow keys step through the grid's photos, × or Escape closes.
+- Beside the map (below it on a tall screen) a grid shows the photos taken in the area on screen, newest first. From zoom level 13 the photos also appear as points on the map. Tap a point or a grid photo to open it in the grid's place, so the map stays in view; opening one from the grid (or stepping with ‹ › or the arrow keys) moves the map to where it was taken. Pinch, scroll or double-click inside a photo to zoom it, drag to look around; × or Escape closes it.
 - Thumbnails are the small JPEG cameras embed in EXIF where there is one, else the photo shrunk; they are cached in the app's storage. HEIC and raw files without an embedded JPEG thumbnail show as a blank tile for now.
 
 ## Run on the desktop

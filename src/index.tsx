@@ -151,7 +151,20 @@ function Main(props: { boot: Boot }) {
 
   // The viewer shows one photo of a list (the grid's, when it was opened).
   let [viewing, setViewing] = createSignal<{ list: Photo[]; index: number } | null>(null)
-  let step = (d: number) => setViewing((v) => v && { ...v, index: Math.max(0, Math.min(v.list.length - 1, v.index + d)) })
+  // Opening a photo from the grid (or stepping to the next one) brings the
+  // map to where it was taken, zoomed in to street level at least.
+  let showOnMap = (p: Photo | undefined) => {
+    if (!p) return
+    autoFit = false
+    setView((v) => ({ x: p.mx, y: p.my, z: Math.max(v.z, 16) }))
+  }
+  let step = (d: number) => {
+    let v = viewing()
+    if (!v) return
+    let index = Math.max(0, Math.min(v.list.length - 1, v.index + d))
+    setViewing({ ...v, index })
+    showOnMap(v.list[index])
+  }
   let current = createMemo(() => {
     let v = viewing()
     return v ? v.list[v.index] ?? null : null
@@ -341,30 +354,36 @@ function Main(props: { boot: Boot }) {
             paddingRight={12}
             paddingTop={wide() ? 0 : 0}
             paddingBottom={8}
+            position="relative"
           >
             <PhotoGrid
               photos={areaPhotos()}
               total={(areaCount()?.n as number) ?? 0}
               thumbs={thumbCache}
               selected={current()?.id ?? null}
-              onOpen={(index) => setViewing({ list: areaPhotos(), index })}
+              onOpen={(index) => {
+                let list = areaPhotos()
+                setViewing({ list, index })
+                showOnMap(list[index])
+              }}
             />
+            {/* The open photo takes the grid's place; the map stays in view. */}
+            <Show when={current()}>
+              {(p) => (
+                <Viewer
+                  photo={p()}
+                  index={viewing()!.index}
+                  count={viewing()!.list.length}
+                  thumbs={thumbCache}
+                  loader={viewerLoader}
+                  onClose={() => setViewing(null)}
+                  onPrev={() => step(-1)}
+                  onNext={() => step(1)}
+                />
+              )}
+            </Show>
           </view>
         </view>
-      </Show>
-      <Show when={current()}>
-        {(p) => (
-          <Viewer
-            photo={p()}
-            index={viewing()!.index}
-            count={viewing()!.list.length}
-            thumbs={thumbCache}
-            loader={viewerLoader}
-            onClose={() => setViewing(null)}
-            onPrev={() => step(-1)}
-            onNext={() => step(1)}
-          />
-        )}
       </Show>
     </view>
   )
