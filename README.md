@@ -2,6 +2,10 @@
 
 A heatmap of where your photos were taken, built with [SolidRT](https://github.com/wellawaretech/solidrt). It runs as a desktop window and as an Android app.
 
+<img src="docs/screenshot-phone.png" width="320" alt="Phone preview: a map of central Paris with photo points over the heatmap, and one photo of the Paris council chamber open below it">
+
+<sub>Screenshot: map data © OpenStreetMap contributors. Photo: "Conseil de Paris" by Zigsfy, <a href="https://commons.wikimedia.org/wiki/File:Conseil_de_Paris.JPG">Wikimedia Commons</a>, CC BY-SA 3.0.</sub>
+
 - Pick the folders your photos are in (Folders tab: one-tap suggestions or a folder browser). Every start, and **Scan now**, re-walks them and reads the EXIF block of new or changed files only.
 - The GPS position and capture time come from EXIF in JPEG, HEIC/HEIF, AVIF, TIFF and the TIFF-based raw formats (DNG, CR2, NEF, ARW, ORF, RW2, PEF, SRW). Videos are not read yet.
 - The index lives in a local SQLite database (`photos.db`) in the app's own private storage folder. Photos and their locations never leave the device.
