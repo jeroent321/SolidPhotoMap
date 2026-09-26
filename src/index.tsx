@@ -18,6 +18,7 @@ import {
   safeArea,
   untrack,
   windowSize,
+  pct,
   Loading,
   Show,
 } from "@solidrt/core"
@@ -307,8 +308,7 @@ function Main(props: { boot: Boot }) {
               </view>
             </Show>
             <Show when={!scan().running && totals().located === 0}>
-              <view position="absolute" left={0} right={0} top={0} bottom={0} alignItems="center" justifyContent="center" pointerEvents="none">
-                <view maxWidth={360} margin={16} padding={20} gap={12} alignItems="center">
+              <view position="absolute" left={pct(50)} top={pct(50)} width={320} x={-160} y={-95} padding={20} gap={12} alignItems="center">
                   <d-rect color="#181b22f0" radius={16} />
                   <text fontSize={17} fontWeight={700} color={TEXT}>No photos with a location yet</text>
                   <text fontSize={14} color={MUTED} textAlign="center">
@@ -321,8 +321,7 @@ function Main(props: { boot: Boot }) {
                     <text fontSize={15} fontWeight={600} color="#ffffff">Choose folders</text>
                   </view>
                 </view>
-              </view>
-            </Show>
+                          </Show>
           </view>
           <view
             flexGrow={wide() ? 2 : 4}

@@ -1,7 +1,7 @@
 // One photo over the whole app: the full image (decoded in the thumbs
 // isolate, the grid thumbnail standing in while it loads), its date and
 // file name, and previous / next through the list it was opened from.
-import { createEffect, createSignal, env, Show, untrack } from "@solidrt/core"
+import { createEffect, createSignal, env, pct, Show, untrack } from "@solidrt/core"
 import { createTexture, destroyTexture, type TextureId } from "@solidrt/core/gpu"
 import type { Isolated } from "flux:isolate"
 import type * as Thumbs from "./thumbs"
@@ -88,12 +88,12 @@ export function Viewer(props: {
         <text fontSize={12} color={MUTED} maxLines={1}>{`${name()} · ${props.index + 1} of ${props.count}`}</text>
       </view>
       <Show when={props.index > 0}>
-        <view position="absolute" left={12} top={0} bottom={0} justifyContent="center" pointerEvents="none">
+        <view position="absolute" left={12} top={pct(50)} y={-22}>
           <RoundButton label="‹" size={28} onPress={props.onPrev} />
         </view>
       </Show>
       <Show when={props.index < props.count - 1}>
-        <view position="absolute" right={12} top={0} bottom={0} justifyContent="center" pointerEvents="none">
+        <view position="absolute" right={12} top={pct(50)} y={-22}>
           <RoundButton label="›" size={28} onPress={props.onNext} />
         </view>
       </Show>
