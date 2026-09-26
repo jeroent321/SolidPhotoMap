@@ -128,16 +128,17 @@ export function PhotoMap(props: {
   let px = (tx: number) => (tx - anchor()[1]) * TILE
   let py = (ty: number) => (ty - anchor()[2]) * TILE
 
-  // Tapping near a point opens that photo: the nearest point within reach of
-  // a finger, found on pointer up if the pointer did not travel (a drag).
+  // Tapping a point opens that photo: the nearest point within `reach`, found
+  // on pointer up if the pointer did not travel (a drag). A mouse has to hit
+  // the dot itself; a finger gets a wider margin.
   let moved = false
   let downAt = [0, 0]
-  let pick = (x: number, y: number) => {
+  let pick = (x: number, y: number, reach: number) => {
     let [w, h] = size()
     let v = props.view
     let world = TILE * 2 ** v.z
     let best: Photo | null = null
-    let bestD = 22 * 22
+    let bestD = reach * reach
     for (let p of props.points) {
       let dx = (p.mx - v.x) * world + w / 2 - x
       let dy = (p.my - v.y) * world + h / 2 - y
@@ -203,7 +204,7 @@ export function PhotoMap(props: {
               downAt = [e.localX, e.localY]
             }}
             onPointerUp={(e) => {
-              if (!moved && Math.hypot(e.localX - downAt[0]!, e.localY - downAt[1]!) < 8) pick(e.localX, e.localY)
+              if (!moved && Math.hypot(e.localX - downAt[0]!, e.localY - downAt[1]!) < 8) pick(e.localX, e.localY, e.pointerType === "touch" ? 22 : 8)
             }}
           >
           <d-rect color="#1b1f27" />
