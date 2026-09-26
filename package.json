@@ -4,7 +4,7 @@
   "private": true,
   "solidrt": {
     "appId": "local.jeroen.solidphotomap",
-    "displayName": "Photo Map",
+    "displayName": "Solid Photo Map",
     "icon": null,
     "iconBackground": "#0f1115",
     "capabilities": {

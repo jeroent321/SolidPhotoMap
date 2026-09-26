@@ -1,4 +1,4 @@
-# Photo Map
+# Solid Photo Map
 
 A heatmap of where your photos were taken, built with [SolidRT](https://github.com/wellawaretech/solidrt). It runs as a desktop window and as an Android app.
 

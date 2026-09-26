@@ -1,4 +1,4 @@
-// Photo Map: a heatmap of where your photos were taken, read from the GPS
+// Solid Photo Map: a heatmap of where your photos were taken, read from the GPS
 // position in each photo's EXIF block.
 // - folders: chosen in the Folders page; every start (and "Scan now")
 //   re-walks them in the indexer isolate, reading only new or changed files.
@@ -18,6 +18,7 @@ import {
   safeArea,
   untrack,
   windowSize,
+  capabilities,
   pct,
   Loading,
   Show,
@@ -162,6 +163,7 @@ function Main(props: { boot: Boot }) {
     else if (e.key === "ArrowLeft") step(-1)
     else if (e.key === "ArrowRight") step(1)
   }
+  let compact = () => capabilities.windowSizeClass === "compact"
   let wide = () => windowSize().width > windowSize().height && windowSize().width >= 700
 
   createEffect(
@@ -261,8 +263,8 @@ function Main(props: { boot: Boot }) {
   return (
     <view flexGrow={1} minHeight={0} gap={12} position="relative">
       <view flexDirection="row" alignItems="center" gap={12} paddingLeft={16} paddingRight={16}>
-        <text flexGrow={1} fontSize={24} fontWeight={800} color={TEXT}>Photo Map</text>
-        <view flexDirection="row" gap={4} padding={3} width={220}>
+        <text flexGrow={1} minWidth={0} fontSize={compact() ? 20 : 24} fontWeight={800} color={TEXT} maxLines={1}>Solid Photo Map</text>
+        <view flexDirection="row" gap={4} padding={3} width={compact() ? 176 : 220} flexShrink={0}>
           <d-rect color={CARD} radius={11} />
           <Tab label="Map" active={page() === "map"} onSelect={() => setPage("map")} />
           <Tab label="Folders" active={page() === "folders"} onSelect={() => setPage("folders")} />
@@ -407,7 +409,7 @@ function App() {
   let booted = createMemo(() => boot())
   return (
     <window
-      title={simulatePhone ? "Photo Map (phone preview)" : "Photo Map"}
+      title={simulatePhone ? "Solid Photo Map (phone preview)" : "Solid Photo Map"}
       paddingTop={safeArea().top}
       paddingBottom={safeArea().bottom}
       paddingLeft={safeArea().left}
