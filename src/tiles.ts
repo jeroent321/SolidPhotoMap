@@ -11,6 +11,7 @@
 // Textures live in a reference-counted cache: a tile on screen holds a
 // reference, and textures nobody holds are freed once the cache grows past
 // its budget.
+import { createEffect, createSignal, onSettled } from "@solidrt/core"
 import { createTexture } from "@solidrt/core/gpu"
 import type { TextureId } from "@solidrt/core/gpu"
 import { destroyTexture } from "@solidrt/core/gpu"
@@ -144,4 +145,33 @@ export function mapTileCache(source: TileSource): TextureCache {
     let img = decodeImage(bytes)
     return createTexture(img.data, img.width, img.height, { autoFree: false, label: `tile ${key}` })
   })
+}
+
+/**
+ * The texture for a cache key, held while the calling component lives. When
+ * the key changes the previous texture stays up until the new one has
+ * loaded, so a changing tile (a new heat version) updates in place instead of
+ * flickering. null for no texture (still loading, or nothing to show).
+ */
+export function useCachedTexture(cache: TextureCache, key: () => string | null): () => TextureId | null {
+  let [tex, setTex] = createSignal<TextureId | null>(null, { ownedWrite: true })
+  let held: string | null = null
+  createEffect(key, (k) => {
+    if (k == null) return
+    let alive = true
+    cache.acquire(k).then((t) => {
+      if (!alive) return cache.release(k)
+      let previous = held
+      held = k
+      setTex(t)
+      if (previous) cache.release(previous)
+    })
+    return () => {
+      alive = false
+    }
+  })
+  onSettled(() => () => {
+    if (held) cache.release(held)
+  })
+  return tex
 }

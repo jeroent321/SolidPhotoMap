@@ -5,6 +5,7 @@
 // device.
 import { Database } from "@solidrt/core/data"
 import type { Found } from "./indexer"
+import { mercator } from "./geo"
 
 export async function openDb(): Promise<Database> {
   let db = await Database.open("photos.db", "rw+")
@@ -31,18 +32,32 @@ export async function openDb(): Promise<Database> {
       value TEXT NOT NULL
     );
   `)
+  // Web Mercator position (geo.ts), so the map's visible area is a plain
+  // range query. Added after the first version: backfill older rows.
+  let columns = await db.query("PRAGMA table_info(photos)").all()
+  if (!columns.some((c) => c.name === "mx")) {
+    await db.exec("ALTER TABLE photos ADD COLUMN mx REAL; ALTER TABLE photos ADD COLUMN my REAL;")
+    let rows = await db.query("SELECT id, lat, lon FROM photos WHERE lat IS NOT NULL").all()
+    await db.transaction(
+      rows.map((r): [string, number[]] => ["UPDATE photos SET mx = ?, my = ? WHERE id = ?", [...mercator(r.lat as number, r.lon as number), r.id as number]]),
+    )
+  }
+  await db.exec("CREATE INDEX IF NOT EXISTS photos_area ON photos (mx, my)")
   return db
 }
+
+/** A located photo as the grid, the map's points and the viewer use it. */
+export type Photo = { id: number; path: string; mtime: number; taken: string | null; mx: number; my: number }
 
 export function saveFound(db: Database, found: Found[]) {
   if (!found.length) return Promise.resolve([])
   let now = Date.now()
   return db.transaction(
     found.map((f): [string, (string | number | null)[]] => [
-      `INSERT INTO photos (path, size, mtime, lat, lon, taken, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO photos (path, size, mtime, lat, lon, mx, my, taken, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime, lat = excluded.lat,
-         lon = excluded.lon, taken = excluded.taken, indexed_at = excluded.indexed_at`,
-      [f.path, f.size, f.mtime, f.lat, f.lon, f.taken, now],
+         lon = excluded.lon, mx = excluded.mx, my = excluded.my, taken = excluded.taken, indexed_at = excluded.indexed_at`,
+      [f.path, f.size, f.mtime, f.lat, f.lon, ...(f.lat != null && f.lon != null ? mercator(f.lat, f.lon) : [null, null]), f.taken, now],
     ]),
   )
 }

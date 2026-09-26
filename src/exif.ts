@@ -44,24 +44,30 @@ export async function readPhotoMeta(read: Reader, size: number): Promise<PhotoMe
 }
 
 async function readJpeg(read: Reader, size: number, head: Uint8Array): Promise<PhotoMeta> {
+  let tiff = await jpegTiff(read, size, head)
+  return tiff ? parseTiff(tiff, 0) : NONE
+}
+
+// The TIFF structure inside a JPEG's APP1 "Exif" segment, or null.
+async function jpegTiff(read: Reader, size: number, head: Uint8Array): Promise<Uint8Array | null> {
   let buf = head
   let base = 0
   let p = 2
   // Walk the marker segments until the Exif APP1 or the start of scan.
   for (let guard = 0; guard < 64; guard++) {
     if (p + 4 > base + buf.length) {
-      if (p + 4 > size) return NONE
+      if (p + 4 > size) return null
       buf = await read(p, Math.min(size - p, 128 * 1024))
       base = p
     }
     let i = p - base
-    if (buf[i] !== 0xff) return NONE
+    if (buf[i] !== 0xff) return null
     let marker = buf[i + 1]!
     if (marker === 0xff) {
       p++
       continue
     }
-    if (marker === 0xda || marker === 0xd9) return NONE
+    if (marker === 0xda || marker === 0xd9) return null
     let len = (buf[i + 2]! << 8) | buf[i + 3]!
     if (marker === 0xe1 && len > 8) {
       if (p + 2 + len > base + buf.length) {
@@ -70,12 +76,52 @@ async function readJpeg(read: Reader, size: number, head: Uint8Array): Promise<P
       }
       let s = p - base + 4
       if (ascii(buf, s, 4) === "Exif" && buf[s + 4] === 0 && buf[s + 5] === 0) {
-        return parseTiff(buf.subarray(s + 6, p - base + 2 + len), 0)
+        return buf.subarray(s + 6, p - base + 2 + len)
       }
     }
     p += 2 + len
   }
-  return NONE
+  return null
+}
+
+/**
+ * What the thumbnailer needs from a JPEG: its EXIF orientation (1 = upright,
+ * 3 = upside down, 6 = rotate 90 clockwise to view, 8 = 90 counter-clockwise)
+ * and the small JPEG thumbnail most cameras embed in IFD1, if any.
+ */
+export async function readJpegExtras(read: Reader, size: number): Promise<{ orientation: number; thumb: Uint8Array | null }> {
+  let head = await read(0, Math.min(size, 64 * 1024))
+  if (head[0] !== 0xff || head[1] !== 0xd8) return { orientation: 1, thumb: null }
+  let b = await jpegTiff(read, size, head)
+  if (!b || b.length < 8) return { orientation: 1, thumb: null }
+  let le = b[0] === 0x49
+  let u16 = (o: number) => (le ? b[o]! | (b[o + 1]! << 8) : (b[o]! << 8) | b[o + 1]!)
+  let u32 = (o: number) =>
+    le ? (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)) + b[o + 3]! * 0x1000000 : b[o]! * 0x1000000 + ((b[o + 1]! << 16) | (b[o + 2]! << 8) | b[o + 3]!)
+  let entries = (o: number) => {
+    if (o + 2 > b.length) return { tags: new Map<number, number>(), next: 0 }
+    let n = u16(o)
+    let tags = new Map<number, number>()
+    for (let i = 0; i < n && o + 2 + i * 12 + 12 <= b.length; i++) {
+      let e = o + 2 + i * 12
+      let type = u16(e + 2)
+      tags.set(u16(e), type === 3 ? u16(e + 8) : u32(e + 8))
+    }
+    let nextAt = o + 2 + n * 12
+    return { tags, next: nextAt + 4 <= b.length ? u32(nextAt) : 0 }
+  }
+  let ifd0 = entries(u32(4))
+  let orientation = ifd0.tags.get(0x0112) ?? 1
+  let thumb: Uint8Array | null = null
+  if (ifd0.next) {
+    let ifd1 = entries(ifd0.next)
+    let offset = ifd1.tags.get(0x0201)
+    let length = ifd1.tags.get(0x0202)
+    if (offset && length && offset + length <= b.length && b[offset] === 0xff && b[offset + 1] === 0xd8) {
+      thumb = b.slice(offset, offset + length)
+    }
+  }
+  return { orientation, thumb }
 }
 
 async function readBmff(read: Reader, size: number): Promise<PhotoMeta> {

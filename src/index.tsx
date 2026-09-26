@@ -17,6 +17,7 @@ import {
   onSettled,
   safeArea,
   untrack,
+  windowSize,
   Loading,
   Show,
 } from "@solidrt/core"
@@ -26,7 +27,11 @@ import { isolate } from "flux:isolate"
 import { registerDebug } from "srt:dev"
 import type * as Indexer from "./indexer"
 import type * as Heat from "./heat"
-import { getSetting, openDb, removePaths, saveFound, setSetting } from "./db"
+import type * as Thumbs from "./thumbs"
+import type { KeyEvent } from "@solidrt/core"
+import { getSetting, openDb, removePaths, saveFound, setSetting, type Photo } from "./db"
+import { PhotoGrid } from "./grid"
+import { Viewer } from "./viewer"
 import { FoldersPage, type Folder, type ScanState } from "./folders"
 import { PhotoMap } from "./map"
 import { mapTileCache, OSM, TextureCache } from "./tiles"
@@ -50,6 +55,27 @@ const heatCache = new TextureCache(300, async (key) => {
   return createTexture(pixels, HEAT_SIZE, HEAT_SIZE, { autoFree: false, label: `heat ${key}` })
 })
 const tileCache = mapTileCache(OSM)
+
+// Thumbnails come from one isolate, the viewer's full images from another,
+// so opening a photo does not wait behind a screenful of thumbnails.
+let thumbs = isolate<typeof Thumbs>("thumbs")
+let viewerLoader = isolate<typeof Thumbs>("thumbs")
+// Grid cells register the path behind each thumbnail key before asking.
+const thumbPaths = new Map<string, string>()
+const thumbCache = new TextureCache(400, async (key) => {
+  let path = thumbPaths.get(key)
+  if (!path) return null
+  let img = await thumbs.thumb(path, key)
+  if (!img) return null
+  return createTexture(img.data, img.width, img.height, { autoFree: false, mipmap: true, label: `thumb ${key}` })
+})
+
+/** Points appear on the map from this zoom level (a town fills the map). */
+const POINT_ZOOM = 13
+const GRID_LIMIT = 2000
+
+// Keys reach the window when nothing has focus; the viewer listens there.
+let onKey: ((e: KeyEvent) => void) | null = null
 
 type Boot = { db: Database; view: View | null; tiles: boolean }
 
@@ -86,6 +112,52 @@ function Main(props: { boot: Boot }) {
   // Until the map is touched it keeps fitting itself to the photos found so far.
   let [fit, setFit] = createSignal<[number, number, number, number] | null>(null)
   let autoFit = savedView == null
+
+  // The part of the world the map shows, settled 150 ms after the map stops
+  // moving, drives the grid's query.
+  let [mapSize, setMapSize] = createSignal<[number, number]>([0, 0])
+  let [area, setArea] = createSignal<[number, number, number, number]>([0, 0, 0, 0])
+  createEffect(
+    () => {
+      let [w, h] = mapSize()
+      let v = view()
+      let world = 256 * 2 ** v.z
+      return [v.x - w / 2 / world, v.x + w / 2 / world, v.y - h / 2 / world, v.y + h / 2 / world] as [number, number, number, number]
+    },
+    (a) => {
+      let timer = setTimeout(() => setArea(a), 150)
+      return () => clearTimeout(timer)
+    },
+  )
+  let areaRows = createQuery(
+    db,
+    `SELECT id, path, mtime, taken, mx, my FROM photos
+     WHERE mx BETWEEN ? AND ? AND my BETWEEN ? AND ?
+     ORDER BY taken IS NULL, taken DESC, id DESC LIMIT ${GRID_LIMIT}`,
+    () => area(),
+  )
+  let areaPhotos = createMemo(() => {
+    let rows = (areaRows() ?? []) as unknown as Photo[]
+    for (let p of rows) thumbPaths.set(`${p.id}-${p.mtime}`, p.path)
+    return rows
+  })
+  let areaCount = createQueryRow(db, "SELECT COUNT(*) AS n FROM photos WHERE mx BETWEEN ? AND ? AND my BETWEEN ? AND ?", () => area())
+  let points = createMemo(() => (view().z >= POINT_ZOOM ? areaPhotos() : []))
+
+  // The viewer shows one photo of a list (the grid's, when it was opened).
+  let [viewing, setViewing] = createSignal<{ list: Photo[]; index: number } | null>(null)
+  let step = (d: number) => setViewing((v) => v && { ...v, index: Math.max(0, Math.min(v.list.length - 1, v.index + d)) })
+  let current = createMemo(() => {
+    let v = viewing()
+    return v ? v.list[v.index] ?? null : null
+  })
+  onKey = (e) => {
+    if (!viewing()) return
+    if (e.key === "Escape") setViewing(null)
+    else if (e.key === "ArrowLeft") step(-1)
+    else if (e.key === "ArrowRight") step(1)
+  }
+  let wide = () => windowSize().width > windowSize().height && windowSize().width >= 700
 
   createEffect(
     () => view(),
@@ -166,17 +238,20 @@ function Main(props: { boot: Boot }) {
   registerDebug("page", (p: "map" | "folders") => setPage(p))
   registerDebug("addFolder", (path: string) => void addFolder(path))
   registerDebug("view", (v?: View) => (v ? void setView(v) : view()))
-  registerDebug("state", () => ({ scan: scan(), totals: totals(), heatVersion: heatVersion(), view: view(), folders: folders() }))
+  registerDebug("state", () => ({ viewing: viewing()?.index ?? null, scan: scan(), totals: totals(), heatVersion: heatVersion(), view: view(), folders: folders() }))
 
   onBack((e) => {
-    if (page() === "folders") {
+    if (viewing()) {
+      e.preventDefault()
+      setViewing(null)
+    } else if (page() === "folders") {
       e.preventDefault()
       setPage("map")
     }
   })
 
   return (
-    <view flexGrow={1} minHeight={0} gap={12}>
+    <view flexGrow={1} minHeight={0} gap={12} position="relative">
       <view flexDirection="row" alignItems="center" gap={12} paddingLeft={16} paddingRight={16}>
         <text flexGrow={1} fontSize={24} fontWeight={800} color={TEXT}>Photo Map</text>
         <view flexDirection="row" gap={4} padding={3} width={220}>
@@ -206,41 +281,82 @@ function Main(props: { boot: Boot }) {
           </view>
         }
       >
-        <view flexGrow={1} minHeight={0} position="relative" onPointerDown={() => (autoFit = false)} onWheel={() => (autoFit = false)}>
-          <PhotoMap
-            view={view()}
-            onView={setView}
-            tiles={tilesOn() ? tileCache : null}
-            maxTileZoom={OSM.maxZoom}
-            attribution={OSM.attribution}
-            heat={heatCache}
-            heatVersion={heatVersion()}
-            fit={fit()}
-          />
-          <Show when={scan().running}>
-            <view position="absolute" left={12} top={12} paddingLeft={12} paddingRight={12} height={32} justifyContent="center" pointerEvents="none">
-              <d-rect color="#181b22e6" radius={16} />
-              <text fontSize={13} color={TEXT}>{`Indexing… ${scan().files} files`}</text>
-            </view>
-          </Show>
-          <Show when={!scan().running && totals().located === 0}>
-            <view position="absolute" left={0} right={0} top={0} bottom={0} alignItems="center" justifyContent="center" pointerEvents="none">
-              <view maxWidth={360} margin={16} padding={20} gap={12} alignItems="center">
-                <d-rect color="#181b22f0" radius={16} />
-                <text fontSize={17} fontWeight={700} color={TEXT}>No photos with a location yet</text>
-                <text fontSize={14} color={MUTED} textAlign="center">
-                  {folders().length === 0
-                    ? "Choose the folders your photos are in, and they will show up here as a heatmap."
-                    : "None of the photos in your folders carries a GPS position."}
-                </text>
-                <view height={40} paddingLeft={16} paddingRight={16} alignItems="center" justifyContent="center" onPointerUp={() => setPage("folders")}>
-                  <d-rect color={ACCENT} radius={10} />
-                  <text fontSize={15} fontWeight={600} color="#ffffff">Choose folders</text>
+        <view flexGrow={1} minHeight={0} flexDirection={wide() ? "row" : "column"} gap={wide() ? 0 : 10}>
+          <view flexGrow={wide() ? 3 : 5} flexBasis={0} minHeight={0} minWidth={0} position="relative" onPointerDown={() => (autoFit = false)} onWheel={() => (autoFit = false)}>
+            <PhotoMap
+              view={view()}
+              onView={setView}
+              tiles={tilesOn() ? tileCache : null}
+              maxTileZoom={OSM.maxZoom}
+              attribution={OSM.attribution}
+              heat={heatCache}
+              heatVersion={heatVersion()}
+              fit={fit()}
+              points={points()}
+              selected={current()?.id ?? null}
+              onPick={(p) => {
+                let list = areaPhotos()
+                setViewing({ list, index: Math.max(0, list.findIndex((x) => x.id === p.id)) })
+              }}
+              onSize={(w, h) => setMapSize([w, h])}
+            />
+            <Show when={scan().running}>
+              <view position="absolute" left={12} top={12} paddingLeft={12} paddingRight={12} height={32} justifyContent="center" pointerEvents="none">
+                <d-rect color="#181b22e6" radius={16} />
+                <text fontSize={13} color={TEXT}>{`Indexing… ${scan().files} files`}</text>
+              </view>
+            </Show>
+            <Show when={!scan().running && totals().located === 0}>
+              <view position="absolute" left={0} right={0} top={0} bottom={0} alignItems="center" justifyContent="center" pointerEvents="none">
+                <view maxWidth={360} margin={16} padding={20} gap={12} alignItems="center">
+                  <d-rect color="#181b22f0" radius={16} />
+                  <text fontSize={17} fontWeight={700} color={TEXT}>No photos with a location yet</text>
+                  <text fontSize={14} color={MUTED} textAlign="center">
+                    {folders().length === 0
+                      ? "Choose the folders your photos are in, and they will show up here as a heatmap."
+                      : "None of the photos in your folders carries a GPS position."}
+                  </text>
+                  <view height={40} paddingLeft={16} paddingRight={16} alignItems="center" justifyContent="center" onPointerUp={() => setPage("folders")}>
+                    <d-rect color={ACCENT} radius={10} />
+                    <text fontSize={15} fontWeight={600} color="#ffffff">Choose folders</text>
+                  </view>
                 </view>
               </view>
-            </view>
-          </Show>
+            </Show>
+          </view>
+          <view
+            flexGrow={wide() ? 2 : 4}
+            flexBasis={0}
+            minHeight={0}
+            minWidth={0}
+            paddingLeft={12}
+            paddingRight={12}
+            paddingTop={wide() ? 0 : 0}
+            paddingBottom={8}
+          >
+            <PhotoGrid
+              photos={areaPhotos()}
+              total={(areaCount()?.n as number) ?? 0}
+              thumbs={thumbCache}
+              selected={current()?.id ?? null}
+              onOpen={(index) => setViewing({ list: areaPhotos(), index })}
+            />
+          </view>
         </view>
+      </Show>
+      <Show when={current()}>
+        {(p) => (
+          <Viewer
+            photo={p()}
+            index={viewing()!.index}
+            count={viewing()!.list.length}
+            thumbs={thumbCache}
+            loader={viewerLoader}
+            onClose={() => setViewing(null)}
+            onPrev={() => step(-1)}
+            onNext={() => step(1)}
+          />
+        )}
       </Show>
     </view>
   )
@@ -255,6 +371,7 @@ function App() {
       paddingBottom={safeArea().bottom}
       paddingLeft={safeArea().left}
       paddingRight={safeArea().right}
+      onKeyDown={(e) => onKey?.(e)}
     >
       <d-rect color={BG} />
       <Loading fallback={<text color={MUTED}>Opening…</text>}>

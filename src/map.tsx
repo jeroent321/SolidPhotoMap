@@ -8,8 +8,9 @@
 // tile set itself changes only when a tile boundary is crossed.
 import { createDoubleTap, createEffect, createMemo, createSignal, createTransform, For, getBoundingBox, onLayout, onSettled, Show, untrack } from "@solidrt/core"
 import type { TextureId } from "@solidrt/core/gpu"
-import type { TextureCache } from "./tiles"
+import { useCachedTexture, type TextureCache } from "./tiles"
 import { fitBounds, panBy, TILE, zoomAbout, type View } from "./geo"
+import type { Photo } from "./db"
 
 type NodeRef = { id: number }
 
@@ -23,28 +24,7 @@ const TEXT = "#e8eaf0"
  * Detached (d-*): lives inside the map's d-view layer.
  */
 function Tile(props: { cache: TextureCache; k: string; x: number; y: number }) {
-  let [tex, setTex] = createSignal<TextureId | null>(null)
-  let held: string | null = null
-  let cache = untrack(() => props.cache)
-  createEffect(
-    () => props.k,
-    (k) => {
-      let alive = true
-      cache.acquire(k).then((t) => {
-        if (!alive) return cache.release(k)
-        let previous = held
-        held = k
-        setTex(t)
-        if (previous) cache.release(previous)
-      })
-      return () => {
-        alive = false
-      }
-    },
-  )
-  onSettled(() => () => {
-    if (held) cache.release(held)
-  })
+  let tex = useCachedTexture(untrack(() => props.cache), () => props.k)
   return (
     <Show when={tex()}>
       {(t) => <d-texture src={t()} x={props.x} y={props.y} w={TILE} h={TILE} />}
@@ -75,6 +55,13 @@ export function PhotoMap(props: {
   heatVersion: number
   /** World box to fit into view; a new object re-fits. */
   fit: [number, number, number, number] | null
+  /** Photos drawn as tappable points (the caller passes them only when zoomed in far enough). */
+  points: Photo[]
+  /** The photo open in the viewer, ringed on the map. */
+  selected: number | null
+  onPick: (photo: Photo) => void
+  /** The map's size on screen, reported after every layout change. */
+  onSize: (w: number, h: number) => void
 }) {
   let node: NodeRef | undefined
   let [size, setSize] = createSignal<[number, number]>([0, 0])
@@ -82,7 +69,10 @@ export function PhotoMap(props: {
     let box = node && getBoundingBox(node)
     if (!box) return
     let [w, h] = untrack(size)
-    if (box.width !== w || box.height !== h) setSize([box.width, box.height])
+    if (box.width !== w || box.height !== h) {
+      setSize([box.width, box.height])
+      untrack(() => props.onSize)(box.width, box.height)
+    }
   })
 
   // Fit requests wait for the first layout, so the map knows its size.
@@ -91,7 +81,7 @@ export function PhotoMap(props: {
     ([fit, [w, h]], prev) => {
       if (!fit || !w || !h) return
       if (prev && prev[0] === fit && prev[1][0]) return
-      props.onView(fitBounds(fit, w, h))
+      untrack(() => props.onView(fitBounds(fit, w, h)))
     },
   )
 
@@ -138,8 +128,33 @@ export function PhotoMap(props: {
   let px = (tx: number) => (tx - anchor()[1]) * TILE
   let py = (ty: number) => (ty - anchor()[2]) * TILE
 
+  // Tapping near a point opens that photo: the nearest point within reach of
+  // a finger, found on pointer up if the pointer did not travel (a drag).
+  let moved = false
+  let downAt = [0, 0]
+  let pick = (x: number, y: number) => {
+    let [w, h] = size()
+    let v = props.view
+    let world = TILE * 2 ** v.z
+    let best: Photo | null = null
+    let bestD = 22 * 22
+    for (let p of props.points) {
+      let dx = (p.mx - v.x) * world + w / 2 - x
+      let dy = (p.my - v.y) * world + h / 2 - y
+      let d = dx * dx + dy * dy
+      if (d < bestD) {
+        bestD = d
+        best = p
+      }
+    }
+    if (best) props.onPick(best)
+  }
+  let ptx = (mx: number) => (mx * 2 ** anchor()[0] - anchor()[1]) * TILE
+  let pty = (my: number) => (my * 2 ** anchor()[0] - anchor()[2]) * TILE
+
   let gesture = createTransform({
     onTransformMove: (t) => {
+      moved = true
       let [w, h] = size()
       let v = panBy(props.view, t.dx, t.dy)
       if (t.scale !== 1) v = zoomAbout(v, t.scale, t.x, t.y, w, h)
@@ -177,6 +192,20 @@ export function PhotoMap(props: {
         {...gesture.handlers}
       >
         <view position="absolute" left={0} right={0} top={0} bottom={0} {...doubleTap.handlers}>
+          <view
+            position="absolute"
+            left={0}
+            right={0}
+            top={0}
+            bottom={0}
+            onPointerDown={(e) => {
+              moved = false
+              downAt = [e.localX, e.localY]
+            }}
+            onPointerUp={(e) => {
+              if (!moved && Math.hypot(e.localX - downAt[0]!, e.localY - downAt[1]!) < 8) pick(e.localX, e.localY)
+            }}
+          >
           <d-rect color="#1b1f27" />
           <d-view x={layer().x} y={layer().y} scale={layer().scale}>
             <Show
@@ -203,6 +232,18 @@ export function PhotoMap(props: {
               {(t) => <Tile cache={props.heat} k={`${props.heatVersion}/${t().wrapped}`} x={px(t().tx)} y={py(t().ty)} />}
             </For>
           </d-view>
+          {/* Its own layer, so points always paint over heat tiles that load later. */}
+          <d-view x={layer().x} y={layer().y} scale={layer().scale}>
+            <For each={props.points} keyed={(p) => p.id}>
+              {(p) => (
+                <>
+                  <d-oval x={ptx(p().mx) - 6} y={pty(p().my) - 6} w={12} h={12} color="#ffffff" />
+                  <d-oval x={ptx(p().mx) - 4.5} y={pty(p().my) - 4.5} w={9} h={9} color={p().id === props.selected ? "#4f8cff" : "#ff4d5e"} />
+                </>
+              )}
+            </For>
+          </d-view>
+          </view>
         </view>
       </view>
 
