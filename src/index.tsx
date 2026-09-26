@@ -35,6 +35,7 @@ import { PhotoGrid } from "./grid"
 import { Viewer } from "./viewer"
 import { FoldersPage, type Folder, type ScanState } from "./folders"
 import { PhotoMap } from "./map"
+import { NAV_BAR, simulatePhone, STATUS_BAR } from "./phone"
 import { mapTileCache, OSM, TextureCache } from "./tiles"
 import type { View } from "./geo"
 
@@ -77,6 +78,8 @@ const GRID_LIMIT = 2000
 
 // Keys reach the window when nothing has focus; the viewer listens there.
 let onKey: ((e: KeyEvent) => void) | null = null
+// The phone preview's on-screen Back button.
+let onPhoneBack: (() => boolean) | null = null
 
 type Boot = { db: Database; view: View | null; tiles: boolean }
 
@@ -153,6 +156,7 @@ function Main(props: { boot: Boot }) {
     return v ? v.list[v.index] ?? null : null
   })
   onKey = (e) => {
+    if (simulatePhone && e.key === "Escape") return void back()
     if (!viewing()) return
     if (e.key === "Escape") setViewing(null)
     else if (e.key === "ArrowLeft") step(-1)
@@ -241,15 +245,18 @@ function Main(props: { boot: Boot }) {
   registerDebug("view", (v?: View) => (v ? void setView(v) : view()))
   registerDebug("state", () => ({ viewing: viewing()?.index ?? null, scan: scan(), totals: totals(), heatVersion: heatVersion(), view: view(), folders: folders() }))
 
+  // Back closes the viewer, then leaves the Folders page; at the map it
+  // falls through to the platform (Android puts the app in the background).
+  let back = () => {
+    if (viewing()) setViewing(null)
+    else if (page() === "folders") setPage("map")
+    else return false
+    return true
+  }
   onBack((e) => {
-    if (viewing()) {
-      e.preventDefault()
-      setViewing(null)
-    } else if (page() === "folders") {
-      e.preventDefault()
-      setPage("map")
-    }
+    if (back()) e.preventDefault()
   })
+  onPhoneBack = back
 
   return (
     <view flexGrow={1} minHeight={0} gap={12} position="relative">
@@ -361,21 +368,64 @@ function Main(props: { boot: Boot }) {
   )
 }
 
+// The phone preview's Android system bars: a status bar with the clock
+// and a navigation bar whose Back button runs the same back step as the
+// Android back gesture.
+function StatusBar() {
+  let [now, setNow] = createSignal(new Date(), { ownedWrite: true })
+  onSettled(() => {
+    let id = setInterval(() => setNow(new Date()), 10_000)
+    return () => clearInterval(id)
+  })
+  return (
+    <view height={STATUS_BAR} flexDirection="row" alignItems="center" paddingLeft={18} paddingRight={18}>
+      <text flexGrow={1} fontSize={13} fontWeight={600} color={TEXT}>
+        {`${now().getHours()}:${String(now().getMinutes()).padStart(2, "0")}`}
+      </text>
+      <text fontSize={12} color={TEXT}>▾ ◢ ▮</text>
+    </view>
+  )
+}
+
+function NavBar() {
+  return (
+    <view height={NAV_BAR} flexDirection="row" alignItems="center" justifyContent="center" gap={72}>
+      <view width={48} height={40} alignItems="center" justifyContent="center" onPointerUp={() => onPhoneBack?.()}>
+        <text fontSize={20} color={TEXT}>◁</text>
+      </view>
+      <view width={48} height={40} alignItems="center" justifyContent="center">
+        <text fontSize={18} color={MUTED}>○</text>
+      </view>
+      <view width={48} height={40} alignItems="center" justifyContent="center">
+        <text fontSize={16} color={MUTED}>▢</text>
+      </view>
+    </view>
+  )
+}
+
 function App() {
   let booted = createMemo(() => boot())
   return (
     <window
-      title="Photo Map"
-      paddingTop={safeArea().top + 14}
+      title={simulatePhone ? "Photo Map (phone preview)" : "Photo Map"}
+      paddingTop={safeArea().top}
       paddingBottom={safeArea().bottom}
       paddingLeft={safeArea().left}
       paddingRight={safeArea().right}
       onKeyDown={(e) => onKey?.(e)}
     >
       <d-rect color={BG} />
-      <Loading fallback={<text color={MUTED}>Opening…</text>}>
-        <Main boot={booted()} />
-      </Loading>
+      <Show when={simulatePhone}>
+        <StatusBar />
+      </Show>
+      <view flexGrow={1} minHeight={0} paddingTop={14}>
+        <Loading fallback={<text color={MUTED}>Opening…</text>}>
+          <Main boot={booted()} />
+        </Loading>
+      </view>
+      <Show when={simulatePhone}>
+        <NavBar />
+      </Show>
     </window>
   )
 }

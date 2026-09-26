@@ -6,6 +6,7 @@ import { createQueryRow, type Database } from "@solidrt/core/data"
 import { homedir } from "flux:process"
 import { dir } from "flux:fs"
 import { isAndroid, PHOTO_PERMISSIONS, requestPermission } from "./android"
+import { touchFirst } from "./phone"
 
 type NodeRef = { id: number }
 
@@ -278,7 +279,7 @@ export function FoldersPage(props: {
           </view>
         </Section>
 
-        <Show when={isAndroid}>
+        <Show when={touchFirst}>
           <Section title="Photo access">
             <text fontSize={13} color={MUTED}>
               Android asks before an app may read your photos, and again before it may see where they were taken.

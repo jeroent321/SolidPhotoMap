@@ -11,6 +11,7 @@ import type { TextureId } from "@solidrt/core/gpu"
 import { useCachedTexture, type TextureCache } from "./tiles"
 import { fitBounds, panBy, TILE, zoomAbout, type View } from "./geo"
 import type { Photo } from "./db"
+import { touchFirst } from "./phone"
 
 type NodeRef = { id: number }
 
@@ -204,7 +205,7 @@ export function PhotoMap(props: {
               downAt = [e.localX, e.localY]
             }}
             onPointerUp={(e) => {
-              if (!moved && Math.hypot(e.localX - downAt[0]!, e.localY - downAt[1]!) < 8) pick(e.localX, e.localY, e.pointerType === "touch" ? 22 : 8)
+              if (!moved && Math.hypot(e.localX - downAt[0]!, e.localY - downAt[1]!) < 8) pick(e.localX, e.localY, e.pointerType === "touch" || touchFirst ? 22 : 8)
             }}
           >
           <d-rect color="#1b1f27" />

@@ -32,7 +32,8 @@
     "dev": "srt run",
     "pack": "srt pack",
     "android": "srt android",
-    "apk": "srt pack --apk"
+    "apk": "srt pack --apk",
+    "phone": "SOLIDPHOTOMAP_PHONE=1 srt client -c 3 --size 412x892"
   },
   "dependencies": {
     "@solidrt/core": "0.0.63"

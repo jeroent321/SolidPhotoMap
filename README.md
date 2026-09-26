@@ -19,6 +19,16 @@ bun run dev
 
 On macOS the Photos library (`~/Pictures/Photos Library.photoslibrary`) is protected by the system: the app reports it as "not allowed to open". Export photos to a normal folder, or give the app (while developing: the terminal running `srt`) Full Disk Access.
 
+## Phone preview on the desktop
+
+With `bun run dev` running, open a second window shaped like a phone:
+
+```sh
+bun run phone
+```
+
+It is a 412x892 portrait window, and the app behaves as on Android: the map sits above the photo grid, Android's status and navigation bars are drawn around it (◁ is Back: it closes a photo, then leaves Folders), Escape also works as Back, photo dots take finger-sized taps, and the Photo access section shows. The preview keeps its own data (folders and index), separate from the normal window. Clicks are still mouse clicks and photos are read from Mac paths, so pinch zoom and the permission dialogs need a real device.
+
 ## Build for Android
 
 ```sh
