@@ -35,7 +35,8 @@ export const OSM: TileSource = {
 
 // The tile usage policy asks for an identifying User-Agent.
 const USER_AGENT = "solidPhotoMap/0.1 (personal photo map; SolidRT)"
-const CONCURRENT = 4
+// The OpenStreetMap tile policy asks for only a couple of connections at a time.
+const CONCURRENT = 2
 
 type Entry = { tex: TextureId | null; refs: number; used: number; promise: Promise<TextureId | null> }
 
