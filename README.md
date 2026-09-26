@@ -6,7 +6,7 @@ A heatmap of where your photos were taken, built with [SolidRT](https://github.c
 - The GPS position and capture time come from EXIF in JPEG, HEIC/HEIF, AVIF, TIFF and the TIFF-based raw formats (DNG, CR2, NEF, ARW, ORF, RW2, PEF, SRW). Videos are not read yet.
 - The index lives in a local SQLite database (`photos.db`) in the app's own private storage folder. Photos and their locations never leave the device.
 - The map background is [OpenStreetMap](https://www.openstreetmap.org/copyright)'s own tile server, run by the non-profit OpenStreetMap Foundation: no account, no API key, no ads or tracking. Tiles are cached on the device after the first download, so the server only sees an area the first time you look at it. Switch the background **Off** in the Folders tab for no network use at all (the heatmap is then drawn on a plain grid).
-- Drag to pan, pinch or scroll to zoom, or use the +/− buttons.
+- Drag to pan; pinch, scroll or double-click (double-tap) to zoom, or use the +/− buttons.
 
 ## Run on the desktop
 

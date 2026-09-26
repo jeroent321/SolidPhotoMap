@@ -6,7 +6,7 @@
 // centre). Panning and fractional zoom only move and scale that layer: three
 // property writes per gesture frame, however many tiles are on screen. The
 // tile set itself changes only when a tile boundary is crossed.
-import { createEffect, createMemo, createSignal, createTransform, For, getBoundingBox, onLayout, onSettled, Show, untrack } from "@solidrt/core"
+import { createDoubleTap, createEffect, createMemo, createSignal, createTransform, For, getBoundingBox, onLayout, onSettled, Show, untrack } from "@solidrt/core"
 import type { TextureId } from "@solidrt/core/gpu"
 import type { TextureCache } from "./tiles"
 import { fitBounds, panBy, TILE, zoomAbout, type View } from "./geo"
@@ -146,6 +146,15 @@ export function PhotoMap(props: {
       props.onView(v)
     },
   })
+  // Double click / double tap zooms in one level about that point. It sits on
+  // an inner view of the same box, so both recognizers see the pointer and
+  // arbitrate through the arena (a drag steals from the double tap).
+  let doubleTap = createDoubleTap({
+    onDoubleTap: (at) => {
+      let [w, h] = size()
+      props.onView(zoomAbout(props.view, 2, at.localX, at.localY, w, h))
+    },
+  })
   let zoomCentre = (factor: number) => {
     let [w, h] = size()
     props.onView(zoomAbout(props.view, factor, w / 2, h / 2, w, h))
@@ -167,32 +176,34 @@ export function PhotoMap(props: {
         }}
         {...gesture.handlers}
       >
-        <d-rect color="#1b1f27" />
-        <d-view x={layer().x} y={layer().y} scale={layer().scale}>
-          <Show
-            when={props.tiles}
-            fallback={
-              <For each={visible()} keyed={(t) => t.key}>
-                {(t) => <d-rect x={px(t().tx)} y={py(t().ty)} w={TILE} h={TILE} color="#2a2f3a" drawStyle="stroke" strokeWidth={1} />}
-              </For>
-            }
-          >
-            {(cache) => (
-              <For each={visible()} keyed={(t) => t.key}>
-                {(t) => <Tile cache={cache()} k={t().wrapped} x={px(t().tx)} y={py(t().ty)} />}
-              </For>
-            )}
+        <view position="absolute" left={0} right={0} top={0} bottom={0} {...doubleTap.handlers}>
+          <d-rect color="#1b1f27" />
+          <d-view x={layer().x} y={layer().y} scale={layer().scale}>
+            <Show
+              when={props.tiles}
+              fallback={
+                <For each={visible()} keyed={(t) => t.key}>
+                  {(t) => <d-rect x={px(t().tx)} y={py(t().ty)} w={TILE} h={TILE} color="#2a2f3a" drawStyle="stroke" strokeWidth={1} />}
+                </For>
+              }
+            >
+              {(cache) => (
+                <For each={visible()} keyed={(t) => t.key}>
+                  {(t) => <Tile cache={cache()} k={t().wrapped} x={px(t().tx)} y={py(t().ty)} />}
+                </For>
+              )}
+            </Show>
+          </d-view>
+          {/* Tones the map down so the heat colours carry. */}
+          <Show when={props.tiles}>
+            <d-rect color="#0f111547" />
           </Show>
-        </d-view>
-        {/* Tones the map down so the heat colours carry. */}
-        <Show when={props.tiles}>
-          <d-rect color="#0f111547" />
-        </Show>
-        <d-view x={layer().x} y={layer().y} scale={layer().scale}>
-          <For each={visible()} keyed={(t) => t.key}>
-            {(t) => <Tile cache={props.heat} k={`${props.heatVersion}/${t().wrapped}`} x={px(t().tx)} y={py(t().ty)} />}
-          </For>
-        </d-view>
+          <d-view x={layer().x} y={layer().y} scale={layer().scale}>
+            <For each={visible()} keyed={(t) => t.key}>
+              {(t) => <Tile cache={props.heat} k={`${props.heatVersion}/${t().wrapped}`} x={px(t().tx)} y={py(t().ty)} />}
+            </For>
+          </d-view>
+        </view>
       </view>
 
       <view position="absolute" right={12} top={12} gap={8}>
